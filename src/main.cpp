@@ -32,17 +32,16 @@ char mqtt_msg[MSG_BUFFER_SIZE];
 
 // Serial
 #define SERIAL_BUFFER_SIZE 256
-#define SERIAL_RX_PIN 14 // D5
-#define SERIAL_TX_PIN 12 // D6
+#define SERIAL_RX_PIN D5
+#define SERIAL_TX_PIN D6
 char end_char = '\0';
 
 // Initialization
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
-StaticJsonDocument<512> doc;                          // larger than it needs to be (Serial buffer size)
 SoftwareSerial SSerial(SERIAL_RX_PIN, SERIAL_TX_PIN); // D5 and D6 on Wemos D1 mini
 
-/* ############################ MQTT ############################################# */
+//
 
 void onMqttMessage(char *topic, byte *payload, unsigned int length)
 {
@@ -51,7 +50,6 @@ void onMqttMessage(char *topic, byte *payload, unsigned int length)
 
 void mqttReconnect()
 {
-
     if (!mqttClient.connected())
     {
         mqttClient.setServer(mqttServer, mqttPort);
@@ -84,9 +82,12 @@ void mqttPublish(char macAdress[], char topic[], String payload)
     mqttClient.publish(mqttTopic, payload.c_str());
 }
 
-void sensorMessageReceived()
+void sensorMessageReceived(StaticJsonDocument<256> &doc)
 {
     digitalWrite(LED_BUILTIN, LOW);
+
+    JsonObject data = doc["data"];
+    data["uptime"] = doc["uptime"];
 
     /*
     JsonObject dataJson = doc["data"];
@@ -102,7 +103,8 @@ void sensorMessageReceived()
 
 #ifdef DEBUG_FLAG
     Serial.print("Sending payload: ");
-    Serial.println(payload.c_str());
+    serializeJson(doc["data"], Serial);
+    Serial.println("");
 #endif
     digitalWrite(LED_BUILTIN, HIGH);
 }
@@ -163,6 +165,8 @@ void loop()
 
     if (SSerial.available())
     {
+        StaticJsonDocument<256> doc; // larger than it needs to be (Serial buffer size)
+
         char data[SERIAL_BUFFER_SIZE];
         SSerial.readBytesUntil(end_char, data, SERIAL_BUFFER_SIZE);
 
@@ -171,6 +175,13 @@ void loop()
         String msg_raw = String(buffer);
 
         deserializeJson(doc, msg_raw);
-        sensorMessageReceived();
+
+#ifdef DEBUG_FLAG
+        Serial.print("Received: ");
+        serializeJson(doc, Serial);
+        Serial.println();
+#endif
+
+        sensorMessageReceived(doc);
     }
 }
