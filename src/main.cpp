@@ -4,6 +4,8 @@
 #include "ArduinoJson.h"
 #include "time.h"
 
+#include "secrets.h"
+
 #ifdef ESP32
 #include <WiFi.h>
 #include <esp_now.h>
@@ -16,8 +18,8 @@
 #define DEBUG_FLAG
 
 // WIFI Settings
-#define WIFI_SSID "SSID"
-#define WIFI_PASSWORD "PASSWORD"
+#define WIFI_SSID SECRET_SSID
+#define WIFI_PASSWORD SECRET_PASSWORD
 
 // MQTT
 #define mqttServer IPAddress(192, 168, 1, 50)
