@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#define MQTT_MAX_PACKET_SIZE 1024
 #include "PubSubClient.h"
 #include "SoftwareSerial.h"
 #include "ArduinoJson.h"
@@ -25,10 +26,8 @@
 #define mqttServer IPAddress(192, 168, 1, 50)
 #define mqttPort 1883
 
-#define MSG_TOPIC_SIZE 50   // not sure
-#define MSG_BUFFER_SIZE 256 // avail: 0 -> 256 gotta match esp-now receiver
+#define MSG_TOPIC_SIZE 200 // not sure 50 was too short
 char mqttTopic[MSG_TOPIC_SIZE];
-char mqtt_msg[MSG_BUFFER_SIZE];
 
 // Serial
 #define SERIAL_BUFFER_SIZE 256
@@ -36,12 +35,20 @@ char mqtt_msg[MSG_BUFFER_SIZE];
 #define SERIAL_TX_PIN D6
 char end_char = '\0';
 
+// Sensors
+struct SensorData
+{
+    String id = ""; // mac-addr example: "B4E62D693C11",
+    String name = "";
+    String data = ""; // "data" : "{"battery" : 3.261719, "moisture" : 40, "uptime" : 131}"
+};
+
 // Initialization
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
 SoftwareSerial SSerial(SERIAL_RX_PIN, SERIAL_TX_PIN); // D5 and D6 on Wemos D1 mini
-
-//
+SensorData sensors[10];
+size_t numberOfSensor = 0;
 
 void onMqttMessage(char *topic, byte *payload, unsigned int length)
 {
@@ -68,44 +75,135 @@ void mqttReconnect()
     }
 }
 
-void mqttPublish(char macAdress[], char topic[], String payload)
+void mqttPublishState(char macAdress[], char topic[], String payload)
 {
-
     strcpy(mqttTopic, "ESP-Now/sensor_");
     strcat(mqttTopic, macAdress);
     strcat(mqttTopic, "/");
     strcat(mqttTopic, topic);
+
 #ifdef DEBUG_FLAG
-    Serial.print("mqttTopic: ");
+    Serial.println("");
+    Serial.println("Sending State!");
+    Serial.print("State Topic: ");
     Serial.println(mqttTopic);
+    Serial.print("State Payload: ");
+    Serial.println(payload.c_str());
+    Serial.println("");
 #endif
+
     mqttClient.publish(mqttTopic, payload.c_str());
 }
+void mqttPublishConfig(char macAdress[], char topic[], String payload)
+{
+    strcpy(mqttTopic, "homeassistant/sensor/espnow-");
+    strcat(mqttTopic, macAdress);
+    strcat(mqttTopic, "/");
+    strcat(mqttTopic, topic);
+
+#ifdef DEBUG_FLAG
+    Serial.println("");
+    Serial.println("Sending Config!");
+    Serial.print("Config Topic: ");
+    Serial.println(mqttTopic);
+    Serial.print("Config Payload: ");
+    Serial.println(payload.c_str());
+    Serial.println("");
+#endif
+
+    mqttClient.publish(mqttTopic, payload.c_str(), true);
+}
+
+void sendMQTTDiscoveryMsg(SensorData &sensor)
+{
+    {
+        DynamicJsonDocument doc(1024);
+        doc["device_class"] = "humidity";
+        doc["state_class"] = "measurement";
+        //doc["icon"] = "mdi:water";
+        doc["unit_of_measurement"] = "%";
+        doc["name"] = "ESP-Now-" + sensor.id + " Moisture";
+        doc["value_template"] = "{{value_json.moisture}}";
+        doc["unique_id"] = "ESP-Now-" + sensor.id + "_moisture";
+        doc["state_topic"] = "ESP-Now/sensor_" + sensor.id + "/state";
+        doc["availability_topic"] = "ESP-Now/sensor_" + sensor.id + "/status";
+        JsonObject device = doc.createNestedObject("device");
+        device["identifiers"] = sensor.id;
+        device["name"] = "sensor_" + sensor.id;
+        device["sw_version"] = "2021.10.0";
+        device["model"] = "d1_mini";
+        device["manufacturer"] = "espressif";
+
+        String payload;
+        serializeJson(doc, payload);
+        mqttPublishConfig((char *)sensor.id.c_str(), "moisture/config", payload);
+    }
+    {
+        DynamicJsonDocument doc(1024);
+        doc["device_class"] = "voltage";
+        doc["state_class"] = "measurement";
+        doc["icon"] = "mdi:battery";
+        doc["unit_of_measurement"] = "V";
+        doc["name"] = "ESP-Now-" + sensor.id + " Battery Voltage";
+        doc["value_template"] = "{{value_json.battery}}";
+        doc["unique_id"] = "ESP-Now-" + sensor.id + "_battery";
+        doc["state_topic"] = "ESP-Now/sensor_" + sensor.id + "/state";
+        doc["availability_topic"] = "ESP-Now/sensor_" + sensor.id + "/status";
+        JsonObject device = doc.createNestedObject("device");
+        device["identifiers"] = sensor.id;
+        device["name"] = "sensor_" + sensor.id;
+        device["sw_version"] = "2021.10.0";
+        device["model"] = "d1_mini";
+        device["manufacturer"] = "espressif";
+
+        String payload;
+        serializeJson(doc, payload);
+        mqttPublishConfig((char *)sensor.id.c_str(), "battery/config", payload);
+    }
+}
+
+void publishState(StaticJsonDocument<256> &doc)
+{
+    String payload;
+    serializeJson(doc["data"], payload);
+    String macAddr = doc["mac"];
+    mqttPublishState((char *)macAddr.c_str(), "state", payload);
+    mqttPublishState((char *)macAddr.c_str(), "status", "online");
+}
+
+bool checkIfNewSensor(String id)
+{
+    bool found = false;
+    for (size_t i = 0; i < numberOfSensor; i++)
+    {
+        if (sensors[i].id == id)
+        {
+            found = true;
+            break;
+        }
+    }
+    return !found;
+};
 
 void sensorMessageReceived(StaticJsonDocument<256> &doc)
 {
     digitalWrite(LED_BUILTIN, LOW);
 
-    JsonObject data = doc["data"];
+    JsonObject data = doc["data"].as<JsonObject>();
     data["uptime"] = doc["uptime"];
 
-    /*
-    JsonObject dataJson = doc["data"];
-    dataJson["state"] = doc["moisture"];
-    dataJson.remove("moisture");
-    dataJson["uptime"] = doc["uptime"];
-    doc["data"] = dataJson;*/
+    SensorData sensor;
+    sensor.id = doc["mac"].as<String>();
+    sensor.name = "Sensor " + doc["mac"].as<String>();
 
-    String payload;
-    serializeJson(doc["data"], payload);
-    String macAddr = doc["mac"];
-    mqttPublish((char *)macAddr.c_str(), "status", payload);
+    if (checkIfNewSensor(sensor.id))
+    {
+        sendMQTTDiscoveryMsg(sensor);
+        numberOfSensor++;
+    }
 
-#ifdef DEBUG_FLAG
-    Serial.print("Sending payload: ");
-    serializeJson(doc["data"], Serial);
-    Serial.println("");
-#endif
+    serializeJson(doc["data"], sensor.data);
+    publishState(doc);
     digitalWrite(LED_BUILTIN, HIGH);
 }
 
@@ -114,7 +212,7 @@ void sensorMessageReceived(StaticJsonDocument<256> &doc)
 void wifiConnected()
 {
     mqttReconnect();
-    configTime(3 * 3600, 0, "pool.ntp.org", "time.nist.gov");
+    configTime(2 * 3600, 0, "pool.ntp.org", "time.nist.gov");
     digitalWrite(LED_BUILTIN, HIGH);
 
 #ifdef DEBUG_FLAG
@@ -177,8 +275,11 @@ void loop()
         deserializeJson(doc, msg_raw);
 
 #ifdef DEBUG_FLAG
+        Serial.println();
+        Serial.println("New Message: ");
         Serial.print("Received: ");
         serializeJson(doc, Serial);
+        Serial.println();
         Serial.println();
 #endif
 
