@@ -122,7 +122,7 @@ void sendMQTTDiscoveryMsg(SensorData &sensor)
         doc["state_class"] = "measurement";
         //doc["icon"] = "mdi:water";
         doc["unit_of_measurement"] = "%";
-        doc["name"] = "ESP-Now-" + sensor.id + " Moisture";
+        doc["name"] = "Soil Moisture";
         doc["value_template"] = "{{value_json.moisture}}";
         doc["unique_id"] = "ESP-Now-" + sensor.id + "_moisture";
         doc["state_topic"] = "ESP-Now/sensor_" + sensor.id + "/state";
@@ -144,7 +144,7 @@ void sendMQTTDiscoveryMsg(SensorData &sensor)
         doc["state_class"] = "measurement";
         doc["icon"] = "mdi:battery";
         doc["unit_of_measurement"] = "V";
-        doc["name"] = "ESP-Now-" + sensor.id + " Battery Voltage";
+        doc["name"] = "Battery Voltage";
         doc["value_template"] = "{{value_json.battery}}";
         doc["unique_id"] = "ESP-Now-" + sensor.id + "_battery";
         doc["state_topic"] = "ESP-Now/sensor_" + sensor.id + "/state";
