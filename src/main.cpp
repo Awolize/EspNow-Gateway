@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#define MQTT_MAX_PACKET_SIZE 1024
 #include "PubSubClient.h"
 #include "SoftwareSerial.h"
 #include "ArduinoJson.h"
@@ -26,7 +25,7 @@
 #define mqttServer IPAddress(192, 168, 1, 50)
 #define mqttPort 1883
 
-#define MSG_TOPIC_SIZE 200 // not sure 50 was too short
+#define MSG_TOPIC_SIZE 100 // not sure 50 was too short
 char mqttTopic[MSG_TOPIC_SIZE];
 
 // Serial
@@ -120,9 +119,31 @@ void sendMQTTDiscoveryMsg(SensorData &sensor)
         DynamicJsonDocument doc(1024);
         doc["device_class"] = "humidity";
         doc["state_class"] = "measurement";
+        doc["icon"] = "mdi:clock";
+        doc["unit_of_measurement"] = "ms";
+        doc["name"] = "Uptime";
+        doc["value_template"] = "{{value_json.uptime}}";
+        doc["unique_id"] = "ESP-Now-" + sensor.id + "_uptime";
+        doc["state_topic"] = "ESP-Now/sensor_" + sensor.id + "/state";
+        doc["availability_topic"] = "ESP-Now/sensor_" + sensor.id + "/status";
+        JsonObject device = doc.createNestedObject("device");
+        device["identifiers"] = sensor.id;
+        device["name"] = "sensor_" + sensor.id;
+        device["sw_version"] = "2021.10.0";
+        device["model"] = "d1_mini";
+        device["manufacturer"] = "espressif";
+
+        String payload;
+        serializeJson(doc, payload);
+        mqttPublishConfig((char *)sensor.id.c_str(), "uptime/config", payload);
+    }
+    {
+        DynamicJsonDocument doc(1024);
+        doc["device_class"] = "humidity";
+        doc["state_class"] = "measurement";
         //doc["icon"] = "mdi:water";
         doc["unit_of_measurement"] = "%";
-        doc["name"] = "Soil Moisture";
+        doc["name"] = "Moisture";
         doc["value_template"] = "{{value_json.moisture}}";
         doc["unique_id"] = "ESP-Now-" + sensor.id + "_moisture";
         doc["state_topic"] = "ESP-Now/sensor_" + sensor.id + "/state";
@@ -168,7 +189,6 @@ void publishState(StaticJsonDocument<256> &doc)
     serializeJson(doc["data"], payload);
     String macAddr = doc["mac"];
     mqttPublishState((char *)macAddr.c_str(), "state", payload);
-    mqttPublishState((char *)macAddr.c_str(), "status", "online");
 }
 
 bool checkIfNewSensor(String id)
@@ -204,6 +224,8 @@ void sensorMessageReceived(StaticJsonDocument<256> &doc)
 
     serializeJson(doc["data"], sensor.data);
     publishState(doc);
+
+    mqttPublishState((char *)sensor.id.c_str(), "status", "online");
     digitalWrite(LED_BUILTIN, HIGH);
 }
 
